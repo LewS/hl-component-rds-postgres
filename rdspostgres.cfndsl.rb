@@ -1,18 +1,20 @@
 CloudFormation do
 
-  Description "#{component_name} - #{component_version}"
+  Description "#{external_parameters[:component_name]} - #{external_parameters[:component_version]}"
 
   tags = []
   tags << { Key: 'Environment', Value: Ref(:EnvironmentName) }
   tags << { Key: 'EnvironmentType', Value: Ref(:EnvironmentType) }
 
-  extra_tags.each { |key,value| tags << { Key: key, Value: value } } if defined? extra_tags
+  extra_tags = external_parameters.fetch(:extra_tags, {})
+  extra_tags.each { |key,value| tags << { Key: key, Value: value } }
+
 
   EC2_SecurityGroup "SecurityGroupRDS" do
     VpcId Ref('VPCId')
-    GroupDescription FnJoin(' ', [ Ref(:EnvironmentName), component_name, 'security group' ])
-    SecurityGroupIngress sg_create_rules(security_group, ip_blocks)
-    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), component_name, 'security-group' ])}]
+    GroupDescription FnJoin(' ', [ Ref(:EnvironmentName), external_parameters[:component_name], 'security group' ])
+    SecurityGroupIngress sg_create_rules(external_parameters[:security_group], external_parameters[:ip_blocks])
+    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), external_parameters[:component_name], 'security-group' ])}]
     Metadata({
       cfn_nag: {
         rules_to_suppress: [
@@ -23,28 +25,34 @@ CloudFormation do
   end
 
   RDS_DBSubnetGroup 'SubnetGroupRDS' do
-    DBSubnetGroupDescription FnJoin(' ', [ Ref(:EnvironmentName), component_name, 'subnet group' ])
+    DBSubnetGroupDescription FnJoin(' ', [ Ref(:EnvironmentName), external_parameters[:component_name], 'subnet group' ])
     SubnetIds Ref('SubnetIds')
-    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), component_name, 'subnet-group' ])}]
+    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), external_parameters[:component_name], 'subnet-group' ])}]
   end
 
   RDS_DBParameterGroup 'ParametersRDS' do
-    Description FnJoin(' ', [ Ref(:EnvironmentName), component_name, 'parameter group' ])
-    Family family
-    Parameters parameters if defined? parameters
-    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), component_name, 'parameter-group' ])}]
+    Description FnJoin(' ', [ Ref(:EnvironmentName), external_parameters[:component_name], 'parameter group' ])
+    Family external_parameters[:family]
+    Parameters external_parameters[:parameters]
+    Tags tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), external_parameters[:component_name], 'parameter-group' ])}]
   end
 
-  instance_username = defined?(master_username) ? master_username : FnJoin('', [ '{{resolve:ssm:', FnSub(master_login['username_ssm_param']), ':1}}' ])
-  instance_password = defined?(master_password) ? master_password : FnJoin('', [ '{{resolve:ssm-secure:', FnSub(master_login['password_ssm_param']), ':1}}' ])
+  master_username = external_parameters.fetch(:master_username, '')
+  master_password = external_parameters.fetch(:master_password, '')
+  instance_username = !master_username.empty? ? master_username : FnJoin('', [ '{{resolve:ssm:', FnSub(external_parameters[:master_login]['username_ssm_param']), ':1}}' ])
+  instance_password = !master_password.empty? ? master_password : FnJoin('', [ '{{resolve:ssm-secure:', FnSub(external_parameters[:master_login]['password_ssm_param']), ':1}}' ])
+
+  maintenance_window = external_parameters.fetch(:maintenance_window, nil)
+  kms_key_id = external_parameters.fetch(:kms_key_id, nil)
+  storage_encrypted = external_parameters.fetch(:storage_encrypted, false)
 
   RDS_DBInstance 'RDS' do
-    DeletionPolicy deletion_policy if defined? deletion_policy
+    DeletionPolicy external_parameters[:deletion_policy]
     DBInstanceClass Ref('RDSInstanceType')
     AllocatedStorage Ref('RDSAllocatedStorage')
     StorageType 'gp2'
     Engine 'postgres'
-    EngineVersion engineVersion
+    EngineVersion external_parameters[:engineVersion]
     DBParameterGroupName Ref('ParametersRDS')
     MasterUsername instance_username
     MasterUserPassword instance_password
@@ -52,11 +60,11 @@ CloudFormation do
     DBSubnetGroupName Ref('SubnetGroupRDS')
     VPCSecurityGroups [Ref('SecurityGroupRDS')]
     MultiAZ Ref('MultiAZ')
-    PreferredMaintenanceWindow maintenance_window if defined? maintenance_window
-    PubliclyAccessible publicly_accessible if defined? publicly_accessible
-    StorageEncrypted storage_encrypted if defined? storage_encrypted
-    KmsKeyId kms_key_id if (defined? kms_key_id) && (storage_encrypted == true)
-    Tags  tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), component_name, 'instance' ])}]
+    PreferredMaintenanceWindow maintenance_window unless maintenance_window.nil?
+    PubliclyAccessible external_parameters[:publicly_accessible]
+    StorageEncrypted storage_encrypted
+    KmsKeyId kms_key_id if (!kms_key_id.nil? && storage_encrypted)
+    Tags  tags + [{ Key: 'Name', Value: FnJoin('-', [ Ref(:EnvironmentName), external_parameters[:component_name], 'instance' ])}]
     Metadata({
       cfn_nag: {
         rules_to_suppress: [
