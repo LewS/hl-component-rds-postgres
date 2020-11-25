@@ -82,4 +82,8 @@ CloudFormation do
     TTL 60
     ResourceRecords [ FnGetAtt('RDS','Endpoint.Address') ]
   end
+  Output(:SecurityGroupId) {
+    Value(FnGetAtt(:SecurityGroupRDS, :GroupId))
+    Export FnSub("${EnvironmentName}-#{external_parameters[:component_name]}-securitygroup-id")
+  }
 end
